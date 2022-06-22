@@ -7,7 +7,14 @@ pub mod cpu;
 pub mod opcode;
 pub mod bus;
 pub mod rom;
+pub mod ppu;
+pub mod render;
+pub mod frame;
+pub mod palette;
+pub mod joypad;
 
+use core::panic;
+use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -18,63 +25,94 @@ use bus::Bus;
 use cpu::AddressingMode;
 use cpu::CPU;
 use cpu::Mem;
+use frame::{Frame, show_tile};
 
+use joypad::Joypad;
 use opcode::OpCode;
 use opcode::CPU_OPS_LOOKUP;
+use ppu::NesPPU;
 use rand::Rng;
 use sdl2::event::Event;
 use sdl2::EventPump;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
+use sdl2::pixels::Palette;
 use sdl2::pixels::PixelFormatEnum;
+use sdl2::rect::Rect;
 
 use crate::rom::Rom;
+
+const W_WIDTH: usize = 800;
+const W_HEIGHT: usize = 800;
 
 fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem
-        .window("SNAKE", (32.0 * 10.0) as u32, (32.0 * 10.0) as u32)
+        .window("SNAKE", (W_WIDTH) as u32, (W_HEIGHT) as u32)
         .position_centered()
         .build().unwrap();
 
     let mut canvas = window.into_canvas().present_vsync().build().unwrap();
     let mut event_pump = sdl_context.event_pump().unwrap();
-    canvas.set_scale(10.0, 10.0).unwrap();
+    canvas.set_scale(1.0, 1.0).unwrap();
 
     let creator = canvas.texture_creator();
     let mut texture = creator
-        .create_texture_target(PixelFormatEnum::RGB24, 32, 32).unwrap();
-
-    // let game_code = vec![0x20, 0x06, 0x06, 0x20, 0x38, 0x06, 0x20, 0x0d, 0x06, 0x20, 0x2a, 0x06, 0x60, 0xa9, 0x02, 0x85,
-    // 0x02, 0xa9, 0x04, 0x85, 0x03, 0xa9, 0x11, 0x85, 0x10, 0xa9, 0x10, 0x85, 0x12, 0xa9, 0x0f, 0x85,
-    // 0x14, 0xa9, 0x04, 0x85, 0x11, 0x85, 0x13, 0x85, 0x15, 0x60, 0xa5, 0xfe, 0x85, 0x00, 0xa5, 0xfe,
-    // 0x29, 0x03, 0x18, 0x69, 0x02, 0x85, 0x01, 0x60, 0x20, 0x4d, 0x06, 0x20, 0x8d, 0x06, 0x20, 0xc3,
-    // 0x06, 0x20, 0x19, 0x07, 0x20, 0x20, 0x07, 0x20, 0x2d, 0x07, 0x4c, 0x38, 0x06, 0xa5, 0xff, 0xc9,
-    // 0x77, 0xf0, 0x0d, 0xc9, 0x64, 0xf0, 0x14, 0xc9, 0x73, 0xf0, 0x1b, 0xc9, 0x61, 0xf0, 0x22, 0x60,
-    // 0xa9, 0x04, 0x24, 0x02, 0xd0, 0x26, 0xa9, 0x01, 0x85, 0x02, 0x60, 0xa9, 0x08, 0x24, 0x02, 0xd0,
-    // 0x1b, 0xa9, 0x02, 0x85, 0x02, 0x60, 0xa9, 0x01, 0x24, 0x02, 0xd0, 0x10, 0xa9, 0x04, 0x85, 0x02,
-    // 0x60, 0xa9, 0x02, 0x24, 0x02, 0xd0, 0x05, 0xa9, 0x08, 0x85, 0x02, 0x60, 0x60, 0x20, 0x94, 0x06,
-    // 0x20, 0xa8, 0x06, 0x60, 0xa5, 0x00, 0xc5, 0x10, 0xd0, 0x0d, 0xa5, 0x01, 0xc5, 0x11, 0xd0, 0x07,
-    // 0xe6, 0x03, 0xe6, 0x03, 0x20, 0x2a, 0x06, 0x60, 0xa2, 0x02, 0xb5, 0x10, 0xc5, 0x10, 0xd0, 0x06,
-    // 0xb5, 0x11, 0xc5, 0x11, 0xf0, 0x09, 0xe8, 0xe8, 0xe4, 0x03, 0xf0, 0x06, 0x4c, 0xaa, 0x06, 0x4c,
-    // 0x35, 0x07, 0x60, 0xa6, 0x03, 0xca, 0x8a, 0xb5, 0x10, 0x95, 0x12, 0xca, 0x10, 0xf9, 0xa5, 0x02,
-    // 0x4a, 0xb0, 0x09, 0x4a, 0xb0, 0x19, 0x4a, 0xb0, 0x1f, 0x4a, 0xb0, 0x2f, 0xa5, 0x10, 0x38, 0xe9,
-    // 0x20, 0x85, 0x10, 0x90, 0x01, 0x60, 0xc6, 0x11, 0xa9, 0x01, 0xc5, 0x11, 0xf0, 0x28, 0x60, 0xe6,
-    // 0x10, 0xa9, 0x1f, 0x24, 0x10, 0xf0, 0x1f, 0x60, 0xa5, 0x10, 0x18, 0x69, 0x20, 0x85, 0x10, 0xb0,
-    // 0x01, 0x60, 0xe6, 0x11, 0xa9, 0x06, 0xc5, 0x11, 0xf0, 0x0c, 0x60, 0xc6, 0x10, 0xa5, 0x10, 0x29,
-    // 0x1f, 0xc9, 0x1f, 0xf0, 0x01, 0x60, 0x4c, 0x35, 0x07, 0xa0, 0x00, 0xa5, 0xfe, 0x91, 0x00, 0x60,
-    // 0xa6, 0x03, 0xa9, 0x00, 0x81, 0x10, 0xa2, 0x00, 0xa9, 0x01, 0x81, 0x10, 0x60, 0xa2, 0x00, 0xea,
-    // 0xea, 0xca, 0xd0, 0xfb, 0x60];
+        .create_texture_target(PixelFormatEnum::RGB24, 256, 240).unwrap();
     
-    let game_code = fs::read("nestest.nes").unwrap();
+    let game_code = fs::read("Pac-Man.nes").unwrap();
 
-    println!("{:?}", game_code);
-    println!("{}", game_code.len());
+    let rom = Rom::new(&game_code).unwrap();
 
-    let mut cpu = CPU::new(Bus::new(Rom::new(&game_code).unwrap()));
+    let mut frame = Frame::new();
+
+    let mut key_map = HashMap::new();
+    key_map.insert(Keycode::Down, joypad::DOWN);
+    key_map.insert(Keycode::Up, joypad::UP);
+    key_map.insert(Keycode::Right, joypad::RIGHT);
+    key_map.insert(Keycode::Left, joypad::LEFT);
+    key_map.insert(Keycode::Space, joypad::SELECT);
+    key_map.insert(Keycode::Return, joypad::START);
+    key_map.insert(Keycode::A, joypad::BUTTON_A);
+    key_map.insert(Keycode::S, joypad::BUTTON_B);
+
+    let bus = Bus::new(rom, move |ppu: &NesPPU, joypad: &mut Joypad| {
+        
+        
+        render::render(ppu, &mut frame);
+        texture.update(None, &frame.data, 256*3).unwrap();
+
+        canvas.copy(&texture, None, None).unwrap();
+
+        canvas.present();
+        for event in event_pump.poll_iter() {
+            match event {
+              Event::Quit { .. }
+              | Event::KeyDown {
+                  keycode: Some(Keycode::Escape),
+                  ..
+              } => std::process::exit(0),
+
+              Event::KeyDown { keycode, .. } => {
+                if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                    joypad.set_button_pressed_status(*key, true);
+                }
+              }
+              Event::KeyUp { keycode, .. } => {
+                if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                    joypad.set_button_pressed_status(*key, false);
+                }
+              }
+
+              _ => { /* do nothing */ }
+            }
+         }
+    });
+    
+    let mut cpu = CPU::new(bus);
     cpu.reset();
-    cpu.program_counter = 0xC000;
+
 
     // let mut screen_state = [0 as u8; 32 * 3 * 32];
     // let mut rng = rand::thread_rng();
@@ -93,15 +131,17 @@ fn main() {
     let mut f = OpenOptions::new()
         .append(true)
         .create(true) // Optionally create the file if it doesn't already exist
+
         .open("codetest.txt")
         .expect("Unable to open file");
+    
     cpu.run_with_callback(|cpu| {
         f.write_all(format!("{}\n", trace(cpu)).as_bytes()).expect("could not write");
     });
 
 }
 
-fn read_screen_state(cpu: &CPU, frame: &mut [u8; 32 * 3 * 32]) -> bool {
+fn read_screen_state(cpu: &mut CPU, frame: &mut [u8; 32 * 3 * 32]) -> bool {
     let mut frame_idx = 0;
     let mut update = false;
     for i in 0x200..0x600 {
@@ -155,6 +195,10 @@ fn handle_user_input(cpu: &mut CPU, event_pump: &mut EventPump) {
     }
 }
 
+
+
+
+
 fn trace(cpu: &mut CPU) -> String {
     let mut ret = String::new();
 
@@ -172,205 +216,210 @@ fn trace(cpu: &mut CPU) -> String {
             ret.push_str("   ");
         }
     }
-    ret.push_str(" ");
+    if opscode.illegal {
+        ret.push_str("*");
+    } else {
+        ret.push_str(" ");
+    }
+    
 
     //get assembly language
     ret.push_str(&format!("{} ", opscode.name));
-    match opscode.add_mode {
-        AddressingMode::Immediate => ret.push_str(&format!("#${:02X}", cpu.mem_read(cpu.program_counter+1))),
+    // match opscode.add_mode {
+    //     AddressingMode::Immediate => ret.push_str(&format!("#${:02X}", cpu.mem_read(cpu.program_counter+1))),
 
-        AddressingMode::Accumulator => ret.push_str("A"),
+    //     AddressingMode::Accumulator => ret.push_str("A"),
 
-        AddressingMode::Relative => {
-            let value = cpu.mem_read(cpu.program_counter+1);
-            if value & 0b1000_0000 == 0 {
-                ret.push_str(&format!("${:04X}", (cpu.program_counter+opscode.bytes).wrapping_add(value as u16)));
-            } else {
-                ret.push_str(&format!("${:04X}", (cpu.program_counter+opscode.bytes).wrapping_add((value as u16) | 0xff00)));
-            }
-        }
+    //     AddressingMode::Relative => {
+    //         let value = cpu.mem_read(cpu.program_counter+1);
+    //         if value & 0b1000_0000 == 0 {
+    //             ret.push_str(&format!("${:04X}", (cpu.program_counter+opscode.bytes).wrapping_add(value as u16)));
+    //         } else {
+    //             ret.push_str(&format!("${:04X}", (cpu.program_counter+opscode.bytes).wrapping_add((value as u16) | 0xff00)));
+    //         }
+    //     }
 
-        AddressingMode::ZeroPage => {
-            let addr = cpu.mem_read(cpu.program_counter+1);
-            ret.push_str(&format!("${:02X} = {:02X}", addr, cpu.mem_read(addr as u16)));
-        }
+    //     AddressingMode::ZeroPage => {
+    //         let addr = cpu.mem_read(cpu.program_counter+1);
+    //         ret.push_str(&format!("${:02X} = {:02X}", addr, cpu.mem_read(addr as u16)));
+    //     }
 
-        AddressingMode::Absolute => {
-            let addr = cpu.mem_read_u16(cpu.program_counter+1);
-            if opscode.name == "JSR" || opscode.name == "JMP" {
-                ret.push_str(&format!("${:04X}", addr))
-            } else {
-                ret.push_str(&format!("${:04X} = {:02X}", addr, cpu.mem_read(addr)))
-            }
-        }
-        ,
+    //     AddressingMode::Absolute => {
+    //         let addr = cpu.mem_read_u16(cpu.program_counter+1);
+    //         if opscode.name == "JSR" || opscode.name == "JMP" {
+    //             ret.push_str(&format!("${:04X}", addr))
+    //         } else {
+    //             ret.push_str(&format!("${:04X} = {:02X}", addr, cpu.mem_read(addr)))
+    //         }
+    //     }
+    //     ,
 
-        AddressingMode::Indirect => {
-            let addr = cpu.mem_read_u16(cpu.program_counter+1);
+    //     AddressingMode::Indirect => {
+    //         let addr = cpu.mem_read_u16(cpu.program_counter+1);
             
-            let r = if addr & 0xFF == 0xFF {
-                let lo = cpu.mem_read(addr);
-                let hi = cpu.mem_read(addr - 0xFF);
-                (hi as u16) << 8 | (lo as u16)
-            } else {
-                cpu.mem_read_u16(addr)
-            };
+    //         let r = if addr & 0xFF == 0xFF {
+    //             let lo = cpu.mem_read(addr);
+    //             let hi = cpu.mem_read(addr - 0xFF);
+    //             (hi as u16) << 8 | (lo as u16)
+    //         } else {
+    //             cpu.mem_read_u16(addr)
+    //         };
 
-            ret.push_str(&format!("(${:04X}) = {:04X}", addr, r));
-        }
+    //         ret.push_str(&format!("(${:04X}) = {:04X}", addr, r));
+    //     }
 
-        AddressingMode::ZeroPage_X => {
-            let base = cpu.mem_read(cpu.program_counter+1);
+    //     AddressingMode::ZeroPage_X => {
+    //         let base = cpu.mem_read(cpu.program_counter+1);
 
-            let ptr: u8 = (base as u8).wrapping_add(cpu.register_x);
+    //         let ptr: u8 = (base as u8).wrapping_add(cpu.register_x);
 
-            ret.push_str(&format!("${:02X},X @ {:02X} = {:02X}", base, ptr, cpu.mem_read(ptr as u16)));
-        }
+    //         ret.push_str(&format!("${:02X},X @ {:02X} = {:02X}", base, ptr, cpu.mem_read(ptr as u16)));
+    //     }
 
-        AddressingMode::ZeroPage_Y => {
-            let base = cpu.mem_read(cpu.program_counter+1);
+    //     AddressingMode::ZeroPage_Y => {
+    //         let base = cpu.mem_read(cpu.program_counter+1);
 
-            let ptr: u8 = (base as u8).wrapping_add(cpu.register_y);
+    //         let ptr: u8 = (base as u8).wrapping_add(cpu.register_y);
 
-            ret.push_str(&format!("${:02X},Y @ {:02X} = {:02X}", base, ptr, cpu.mem_read(ptr as u16)));
-        }
+    //         ret.push_str(&format!("${:02X},Y @ {:02X} = {:02X}", base, ptr, cpu.mem_read(ptr as u16)));
+    //     }
 
-        AddressingMode::Absolute_X => {
-            let base = cpu.mem_read_u16(cpu.program_counter+1);
+    //     AddressingMode::Absolute_X => {
+    //         let base = cpu.mem_read_u16(cpu.program_counter+1);
 
-            let ptr = (base).wrapping_add(cpu.register_x as u16);
+    //         let ptr = (base).wrapping_add(cpu.register_x as u16);
 
-            ret.push_str(&format!("${:04X},X @ {:04X} = {:02X}", base, ptr, cpu.mem_read(ptr)));
-        }
+    //         ret.push_str(&format!("${:04X},X @ {:04X} = {:02X}", base, ptr, cpu.mem_read(ptr)));
+    //     }
 
-        AddressingMode::Absolute_Y => {
-            let base = cpu.mem_read_u16(cpu.program_counter+1);
+    //     AddressingMode::Absolute_Y => {
+    //         let base = cpu.mem_read_u16(cpu.program_counter+1);
 
-            let ptr = (base).wrapping_add(cpu.register_y as u16);
+    //         let ptr = (base).wrapping_add(cpu.register_y as u16);
 
-            ret.push_str(&format!("${:04X},Y @ {:04X} = {:02X}", base, ptr, cpu.mem_read(ptr)));
-        }
+    //         ret.push_str(&format!("${:04X},Y @ {:04X} = {:02X}", base, ptr, cpu.mem_read(ptr)));
+    //     }
 
-        AddressingMode::Indirect_X => {
-            let base = cpu.mem_read(cpu.program_counter+1);
+    //     AddressingMode::Indirect_X => {
+    //         let base = cpu.mem_read(cpu.program_counter+1);
 
-            let ptr: u8 = (base as u8).wrapping_add(cpu.register_x);
+    //         let ptr: u8 = (base as u8).wrapping_add(cpu.register_x);
 
-            let lo = cpu.mem_read(ptr as u16);
-            let hi = cpu.mem_read(ptr.wrapping_add(1) as u16);
-            let addr = (hi as u16) << 8 | (lo as u16);
+    //         let lo = cpu.mem_read(ptr as u16);
+    //         let hi = cpu.mem_read(ptr.wrapping_add(1) as u16);
+    //         let addr = (hi as u16) << 8 | (lo as u16);
 
-            ret.push_str(&format!("(${:02X},X) @ {:02X} = {:04X} = {:02X}", base, ptr, addr, cpu.mem_read(addr)));
-        }
-        AddressingMode::Indirect_Y => {
-            let base = cpu.mem_read(cpu.program_counter+1);
+    //         ret.push_str(&format!("(${:02X},X) @ {:02X} = {:04X} = {:02X}", base, ptr, addr, cpu.mem_read(addr)));
+    //     }
+    //     AddressingMode::Indirect_Y => {
+    //         let base = cpu.mem_read(cpu.program_counter+1);
 
-            let lo = cpu.mem_read(base as u16);
-            let hi = cpu.mem_read((base as u8).wrapping_add(1) as u16);
-            let deref_base = (hi as u16) << 8 | (lo as u16);
+    //         let lo = cpu.mem_read(base as u16);
+    //         let hi = cpu.mem_read((base as u8).wrapping_add(1) as u16);
+    //         let deref_base = (hi as u16) << 8 | (lo as u16);
 
-            let deref = deref_base.wrapping_add(cpu.register_y as u16);
+    //         let deref = deref_base.wrapping_add(cpu.register_y as u16);
 
-            ret.push_str(&format!("(${:02X}),Y = {:04X} @ {:04X} = {:02X}", base, deref_base, deref, cpu.mem_read(deref)));
-        }
-        AddressingMode::NoneAddressing => (),
-    }
+    //         ret.push_str(&format!("(${:02X}),Y = {:04X} @ {:04X} = {:02X}", base, deref_base, deref, cpu.mem_read(deref)));
+    //     }
+    //     AddressingMode::NoneAddressing => (),
+    // }
 
-    while ret.len() < 48 {
-        ret.push_str(" ");
-    }
+    // while ret.len() < 48 {
+    //     ret.push_str(" ");
+    // }
 
-    ret.push_str(&format!("A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}", cpu.register_a, cpu.register_x, cpu.register_y, cpu.status, cpu.stack_pointer));
+    // ret.push_str(&format!("A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}", cpu.register_a, cpu.register_x, cpu.register_y, cpu.status, cpu.stack_pointer));
     ret
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::bus::Bus;
-    use crate::rom::Rom;
+// #[cfg(test)]
+// mod test {
+//     use super::*;
+//     use crate::bus::Bus;
+//     use crate::rom::Rom;
 
-    #[test]
-    fn test_out_trace() {
-        let mut bus = Bus::new(Rom::new(&fs::read("snake.nes").unwrap()).unwrap());
-        bus.mem_write(100, 0xa2);
-        bus.mem_write(101, 0x01);
-        bus.mem_write(102, 0x00);
-        bus.mem_write(103, 0x88);
-        bus.mem_write(104, 0x00);
+//     #[test]
+//     fn test_out_trace() {
+//         let mut bus = Bus::new(Rom::new(&fs::read("snake.nes").unwrap()).unwrap());
+//         bus.mem_write(100, 0xa2);
+//         bus.mem_write(101, 0x01);
+//         bus.mem_write(102, 0x00);
+//         bus.mem_write(103, 0x88);
+//         bus.mem_write(104, 0x00);
 
-        let mut cpu = CPU::new(bus);
-        cpu.program_counter = 0x64;
-        cpu.register_a = 1;
-        cpu.register_x = 2;
-        cpu.register_y = 3;
-        let mut result: Vec<String> = vec![];
-        cpu.run_with_callback(|cpu| {
-            result.push(trace(cpu));
-        });
-        println!("{:?}", result);
-    }
+//         let mut cpu = CPU::new(bus);
+//         cpu.program_counter = 0x64;
+//         cpu.register_a = 1;
+//         cpu.register_x = 2;
+//         cpu.register_y = 3;
+//         let mut result: Vec<String> = vec![];
+//         cpu.run_with_callback(|cpu| {
+//             result.push(trace(cpu));
+//         });
+//         println!("{:?}", result);
+//     }
 
-    #[test]
-    fn test_format_trace() {
-        let mut bus = Bus::new(Rom::new(&fs::read("snake.nes").unwrap()).unwrap());
-        bus.mem_write(100, 0xa2);
-        bus.mem_write(101, 0x01);
-        bus.mem_write(102, 0xca);
-        bus.mem_write(103, 0x88);
-        bus.mem_write(104, 0x00);
+//     #[test]
+//     fn test_format_trace() {
+//         let mut bus = Bus::new(Rom::new(&fs::read("snake.nes").unwrap()).unwrap());
+//         bus.mem_write(100, 0xa2);
+//         bus.mem_write(101, 0x01);
+//         bus.mem_write(102, 0xca);
+//         bus.mem_write(103, 0x88);
+//         bus.mem_write(104, 0x00);
 
-        let mut cpu = CPU::new(bus);
-        cpu.program_counter = 0x64;
-        cpu.register_a = 1;
-        cpu.register_x = 2;
-        cpu.register_y = 3;
-        let mut result: Vec<String> = vec![];
-        cpu.run_with_callback(|cpu| {
-            result.push(trace(cpu));
-        });
-        assert_eq!(
-            "0064  A2 01     LDX #$01                        A:01 X:02 Y:03 P:24 SP:FD",
-            result[0]
-        );
-        assert_eq!(
-            "0066  CA        DEX                             A:01 X:01 Y:03 P:24 SP:FD",
-            result[1]
-        );
-        assert_eq!(
-            "0067  88        DEY                             A:01 X:00 Y:03 P:26 SP:FD",
-            result[2]
-        );
-    }
+//         let mut cpu = CPU::new(bus);
+//         cpu.program_counter = 0x64;
+//         cpu.register_a = 1;
+//         cpu.register_x = 2;
+//         cpu.register_y = 3;
+//         let mut result: Vec<String> = vec![];
+//         cpu.run_with_callback(|cpu| {
+//             result.push(trace(cpu));
+//         });
+//         assert_eq!(
+//             "0064  A2 01     LDX #$01                        A:01 X:02 Y:03 P:24 SP:FD",
+//             result[0]
+//         );
+//         assert_eq!(
+//             "0066  CA        DEX                             A:01 X:01 Y:03 P:24 SP:FD",
+//             result[1]
+//         );
+//         assert_eq!(
+//             "0067  88        DEY                             A:01 X:00 Y:03 P:26 SP:FD",
+//             result[2]
+//         );
+//     }
 
-    #[test]
-    fn test_format_mem_access() {
-        let mut bus = Bus::new(Rom::new(&fs::read("snake.nes").unwrap()).unwrap());
-        // ORA ($33), Y
-        bus.mem_write(100, 0x11);
-        bus.mem_write(101, 0x33);
+//     #[test]
+//     fn test_format_mem_access() {
+//         let mut bus = Bus::new(Rom::new(&fs::read("snake.nes").unwrap()).unwrap());
+//         // ORA ($33), Y
+//         bus.mem_write(100, 0x11);
+//         bus.mem_write(101, 0x33);
 
 
-        //data
-        bus.mem_write(0x33, 00);
-        bus.mem_write(0x34, 04);
+//         //data
+//         bus.mem_write(0x33, 00);
+//         bus.mem_write(0x34, 04);
 
-        //target cell
-        bus.mem_write(0x400, 0xAA);
+//         //target cell
+//         bus.mem_write(0x400, 0xAA);
 
-        let mut cpu = CPU::new(bus);
-        cpu.program_counter = 0x64;
-        cpu.register_y = 0;
-        let mut result: Vec<String> = vec![];
-        cpu.run_with_callback(|cpu| {
-            result.push(trace(cpu));
-        });
-        assert_eq!(
-            "0064  11 33     ORA ($33),Y = 0400 @ 0400 = AA  A:00 X:00 Y:00 P:24 SP:FD",
-            result[0]
-        );
-    }
-}
+//         let mut cpu = CPU::new(bus);
+//         cpu.program_counter = 0x64;
+//         cpu.register_y = 0;
+//         let mut result: Vec<String> = vec![];
+//         cpu.run_with_callback(|cpu| {
+//             result.push(trace(cpu));
+//         });
+//         assert_eq!(
+//             "0064  11 33     ORA ($33),Y = 0400 @ 0400 = AA  A:00 X:00 Y:00 P:24 SP:FD",
+//             result[0]
+//         );
+//     }
+// }
 
 
 // #[cfg(test)]

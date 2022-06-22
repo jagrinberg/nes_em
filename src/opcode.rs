@@ -6,13 +6,13 @@ pub struct OpCode {
     pub opcode: u8,
     pub name: &'static str,
     pub bytes: u16,
-    pub cycles: u16,
+    pub cycles: u8,
     pub add_mode: AddressingMode,
     pub illegal: bool,
 }
 
 impl OpCode {
-    pub fn new(opcode: u8, name: &'static str, bytes: u16, cycles: u16, add_mode: AddressingMode, illegal: bool) -> Self {
+    pub fn new(opcode: u8, name: &'static str, bytes: u16, cycles: u8, add_mode: AddressingMode, illegal: bool) -> Self {
         OpCode { opcode, name, bytes, cycles, add_mode, illegal}
     }
 }
@@ -244,13 +244,13 @@ lazy_static! {
         OpCode::new(0xc3, "DCP", 2, 8, AddressingMode::Indirect_X, true),
         OpCode::new(0xd3, "DCP", 2, 8, AddressingMode::Indirect_Y, true),
 
-        OpCode::new(0xe7, "ISC", 2, 5, AddressingMode::ZeroPage, true),
-        OpCode::new(0xf7, "ISC", 2, 6, AddressingMode::ZeroPage_X, true),
-        OpCode::new(0xef, "ISC", 3, 6, AddressingMode::Absolute, true),
-        OpCode::new(0xff, "ISC", 3, 7, AddressingMode::Absolute_X, true),
-        OpCode::new(0xfb, "ISC", 3, 7, AddressingMode::Absolute_Y, true),
-        OpCode::new(0xe3, "ISC", 2, 8, AddressingMode::Indirect_X, true),
-        OpCode::new(0xf3, "ISC", 2, 4, AddressingMode::Indirect_Y, true),
+        OpCode::new(0xe7, "ISB", 2, 5, AddressingMode::ZeroPage, true),
+        OpCode::new(0xf7, "ISB", 2, 6, AddressingMode::ZeroPage_X, true),
+        OpCode::new(0xef, "ISB", 3, 6, AddressingMode::Absolute, true),
+        OpCode::new(0xff, "ISB", 3, 7, AddressingMode::Absolute_X, true),
+        OpCode::new(0xfb, "ISB", 3, 7, AddressingMode::Absolute_Y, true),
+        OpCode::new(0xe3, "ISB", 2, 8, AddressingMode::Indirect_X, true),
+        OpCode::new(0xf3, "ISB", 2, 4, AddressingMode::Indirect_Y, true),
 
         OpCode::new(0xbb, "LAS", 3, 4, AddressingMode::Absolute_Y, true),
 
@@ -312,6 +312,8 @@ lazy_static! {
         OpCode::new(0x53, "SRE", 2, 8, AddressingMode::Indirect_Y, true),
 
         OpCode::new(0x9b, "TAS", 3, 5, AddressingMode::Absolute_Y, true),
+
+        OpCode::new(0xeb, "SBC", 2, 2, AddressingMode::Immediate, true),
 
         OpCode::new(0x1a, "NOP", 1, 2, AddressingMode::NoneAddressing, true),
         OpCode::new(0x3a, "NOP", 1, 2, AddressingMode::NoneAddressing, true),
