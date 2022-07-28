@@ -61,7 +61,7 @@ fn main() {
     let mut texture = creator
         .create_texture_target(PixelFormatEnum::RGB24, 256, 240).unwrap();
     
-    let game_code = fs::read("Pac-Man.nes").unwrap();
+    let game_code = fs::read("Duck Hunt.nes").unwrap();
 
     let rom = Rom::new(&game_code).unwrap();
 
@@ -136,7 +136,7 @@ fn main() {
         .expect("Unable to open file");
     
     cpu.run_with_callback(|cpu| {
-        f.write_all(format!("{}\n", trace(cpu)).as_bytes()).expect("could not write");
+        // f.write_all(format!("{}\n", trace(cpu)).as_bytes()).expect("could not write");
     });
 
 }

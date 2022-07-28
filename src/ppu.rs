@@ -135,8 +135,16 @@ impl NesPPU {
                 self.internal_data_buf = self.vram[self.mirror_vram_addr(addr) as usize];
                 result
             }
-            0x3000..=0x3eff => panic!("addr space 0x3000..0x3eff is not supposed to be used, requested = {}", addr),
+            0x3000..=0x3eff => {
+                let result = self.internal_data_buf;
+                self.internal_data_buf = self.vram[self.mirror_vram_addr(addr-0x1000) as usize];
+                result
+            }
             0x3f00..=0x3fff => {
+                let mut addr = addr;
+                while addr > 0x3f1f {
+                    addr -= 32;
+                }
                 self.palette_table[(addr - 0x3f00) as usize]
             }
             _ => panic!("unexpected access to mirror read {}", addr),
@@ -154,8 +162,14 @@ impl NesPPU {
             0x2000..=0x2fff => {
                 self.vram[self.mirror_vram_addr(addr) as usize] = data;
             }
-            0x3000..=0x3eff => panic!("addr space 0x3000..0x3eff is not supposed to be used, requested = {}", addr),
+            0x3000..=0x3eff => {
+                self.vram[self.mirror_vram_addr(addr-0x1000) as usize] = data;
+            },
             0x3f00..=0x3fff => {
+                let mut addr = addr;
+                while addr > 0x3f1f {
+                    addr -= 32;
+                }
                 self.palette_table[(addr - 0x3f00) as usize] = data;
             }
             _ => panic!("unexpected access to mirror write {}", addr),

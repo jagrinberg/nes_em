@@ -84,7 +84,7 @@ pub fn render(ppu: &NesPPU, frame: &mut Frame) {
                     (false, false) => frame.set_pixel(tile_x + x, tile_y + y, rgb),
                     (true, false) => frame.set_pixel(tile_x + 7 - x, tile_y + y, rgb),
                     (false, true) => frame.set_pixel(tile_x + x, tile_y + 7 - y, rgb),
-                    (true, true) => frame.set_pixel(tile_x + x -7, tile_y + 7 - y, rgb),
+                    (true, true) => frame.set_pixel(tile_x + 7 - x, tile_y + 7 - y, rgb),
                 }
             }
         }
