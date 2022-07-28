@@ -26,9 +26,11 @@
 *.log
 *.sql
 *.sqlite
+*.nes
 
 # OS generated files #
 ######################
+
 .DS_Store
 .DS_Store?
 ._*
