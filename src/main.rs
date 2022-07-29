@@ -61,7 +61,7 @@ fn main() {
     let mut texture = creator
         .create_texture_target(PixelFormatEnum::RGB24, 256, 240).unwrap();
     
-    let game_code = fs::read("Duck Hunt.nes").unwrap();
+    let game_code = fs::read("SuperMarioBros.nes").unwrap();
 
     let rom = Rom::new(&game_code).unwrap();
 

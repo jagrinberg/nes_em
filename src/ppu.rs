@@ -18,7 +18,7 @@ pub struct NesPPU {
     mask: MaskRegister,
     status: StatRegister,
     oam_addr: OAMAddr,
-    scroll: ScrollRegister,
+    pub scroll: ScrollRegister,
     addr: AddrRegister,
 
     cycles: usize,
@@ -46,6 +46,14 @@ impl NesPPU {
             scanline: 0,
             nmi_interrupt: None,
         }
+    }
+
+    pub fn get_scroll_x(&self) -> usize {
+        self.scroll.get_x() as usize
+    }
+
+    pub fn get_scroll_y(&self) -> usize {
+        self.scroll.get_y() as usize
     }
 
     pub fn get_nmi_interrupt(&mut self) -> Option<usize> {
@@ -179,11 +187,16 @@ impl NesPPU {
     pub fn tick(&mut self, cycles: u8) -> bool{
         self.cycles += cycles as usize;
         if self.cycles >= 341 {
+            if self.is_sprite_0_hit(self.cycles) {
+                self.status.set_sprite_zero_hit(true);
+            }
+
             self.cycles = self.cycles - 341;
             self.scanline += 1;
 
             if self.scanline == 241 {
                 self.status.set_vblank_status(true);
+                self.status.set_sprite_zero_hit(false);
                 if self.ctrl.generate_vblank_nmi() {
                     self.nmi_interrupt = Some(1);
                 }
@@ -191,11 +204,19 @@ impl NesPPU {
 
             if self.scanline >= 262 {
                 self.scanline = 0;
+                self.nmi_interrupt = None;
+                self.status.set_sprite_zero_hit(false);
                 self.status.reset_vblank_status();
                 return true;
             }
         }
         return false;
+    }
+
+    fn is_sprite_0_hit(&self, cycle: usize) -> bool {
+        let y = self.oam_data[0] as usize;
+        let x = self.oam_data[3] as usize;
+        (y == self.scanline as usize) && x <= cycle && self.mask.show_sprites()
     }
 }
 
@@ -295,7 +316,7 @@ impl CtrlRegister {
 
     pub fn get_nametable(&self) -> u16 {
         let mul = (self.control & 0b11) as u16;
-        (0x0400) * mul
+        (0x0400) * mul + 0x2000
     }
 }
 
@@ -322,6 +343,10 @@ impl MaskRegister {
 
     pub fn update(&mut self, data: u8) {
         self.mask = data;
+    }
+
+    pub fn show_sprites(&self) -> bool {
+        (self.mask & SPRITES_SHOW) == SPRITES_SHOW
     }
 }
 
@@ -358,6 +383,10 @@ impl StatRegister {
     pub fn is_in_vblank(&self) -> bool {
         self.status & VBLANK_START == VBLANK_START
     }
+
+    pub fn set_sprite_zero_hit(&mut self, value: bool) {
+        self.status = if value { self.status | SPRITE_0_HIT } else { self.status & !SPRITE_0_HIT }
+    }
 }
 
 #[derive(Debug)]
@@ -385,16 +414,35 @@ impl OAMAddr {
 
 #[derive(Debug)]
 pub struct ScrollRegister {
-    scrl: u8,
+    scroll_x: u8,
+    scroll_y: u8,
+    toggle: bool,
 }
 
 impl ScrollRegister {
     pub fn new() -> Self {
-        ScrollRegister { scrl: 0 }
+        ScrollRegister { 
+            scroll_x: 0,
+            scroll_y: 0,
+            toggle: true,
+        }
     }
 
     pub fn update(&mut self, data: u8) {
-        self.scrl = data;
+        if self.toggle {
+            self.scroll_x = data;
+        } else {
+            self.scroll_y = data;
+        }
+        self.toggle = !self.toggle;
+    }
+    
+    pub fn get_x(&self) -> u8 {
+        self.scroll_x
+    }
+
+    pub fn get_y(&self) -> u8 {
+        self.scroll_y
     }
 }
 
